@@ -140,7 +140,7 @@ if [[ -z "$DSPEED" ]] && [[ -z "$USPEED" ]]; then
     exit 1;
 fi;
 
-# Update the current configuration
+# Modify the current configuration
 if [ "$MODE" = "modify" ]; then
     if [[ -n "$USPEED" ]]; then
         tc class change dev "$IFACE" parent 1: classid 1:1 htb \
