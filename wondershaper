@@ -53,6 +53,7 @@ OPTIONS:
    -f <file>    Use alternative preset file
    -c           Clear the limits from adapter
    -s           Show the current status of adapter
+   -m           Modify the current configuration
    -v           Show the current version
 
    Configure HIPRIODST in "$CONF" for hosts
@@ -79,7 +80,7 @@ IFB="ifb0";
 LOAD_PRESETS=false
 MODE=""
 
-while getopts hvf:d:u:a:pcs o; do
+while getopts hvf:d:u:a:pcsm o; do
   case "$o" in
     h)	usage;
       exit 1;;
@@ -92,6 +93,7 @@ while getopts hvf:d:u:a:pcs o; do
     p) LOAD_PRESETS=true;;
     c) MODE="clear";;
     s) MODE="status";;
+    m) MODE="modify";;
     [?])	usage;
 		exit 1;;
 	esac;
@@ -137,6 +139,39 @@ if [[ -z "$DSPEED" ]] && [[ -z "$USPEED" ]]; then
     usage;
     exit 1;
 fi;
+
+# Update the current configuration
+if [ "$MODE" = "modify" ]; then
+    if [[ -n "$USPEED" ]]; then
+        tc class change dev "$IFACE" parent 1: classid 1:1 htb \
+           rate "${USPEED}kbit" \
+           prio 5 ${COMMONOPTIONS[@]};
+
+        RATE=$((20*${USPEED}/100))
+        if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+        tc class change dev "$IFACE" parent 1:1 classid 1:10 htb \
+           rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
+           prio 1 ${COMMONOPTIONS[@]};
+
+        RATE=$((40*${USPEED}/100))
+        if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+        tc class change dev "$IFACE" parent 1:1 classid 1:20 htb \
+           rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
+           prio 2 ${COMMONOPTIONS[@]};
+
+        RATE=$((20*${USPEED}/100))
+        if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+        tc class change dev "$IFACE" parent 1:1 classid 1:30 htb \
+           rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
+           prio 3 ${COMMONOPTIONS[@]};
+    fi
+
+    if [[ -n "$DSPEED" ]]; then
+        tc class change dev "$IFB" parent 2: classid 2:1 htb rate "${DSPEED}kbit"
+    fi
+
+    exit
+fi
 
 ###### uplink
 
