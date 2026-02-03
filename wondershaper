@@ -140,34 +140,53 @@ if [[ -z "$DSPEED" ]] && [[ -z "$USPEED" ]]; then
     exit 1;
 fi;
 
+function set_class_uplink() {
+    local mode=$1
+    if [[ -z "$mode" ]]; then
+        mode=add
+    fi
+
+    tc class $mode dev "$IFACE" parent 1: classid 1:1 htb \
+        rate "${USPEED}kbit" \
+        prio 5 ${COMMONOPTIONS[@]};
+
+    RATE=$((20*${USPEED}/100))
+    if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+    tc class $mode dev "$IFACE" parent 1:1 classid 1:10 htb \
+        rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
+        prio 1 ${COMMONOPTIONS[@]};
+
+    RATE=$((40*${USPEED}/100))
+    if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+    tc class $mode dev "$IFACE" parent 1:1 classid 1:20 htb \
+        rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
+        prio 2 ${COMMONOPTIONS[@]};
+
+    RATE=$((20*${USPEED}/100))
+    if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+    tc class $mode dev "$IFACE" parent 1:1 classid 1:30 htb \
+        rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
+        prio 3 ${COMMONOPTIONS[@]};
+}
+
+function set_class_downlink() {
+    local mode=$1
+    if [[ -z "$mode" ]]; then
+        mode=add
+    fi
+
+    tc class $mode dev "$IFB" parent 2: classid 2:1 htb \
+        rate "${DSPEED}kbit"
+}
+
 # Modify the current configuration
 if [ "$MODE" = "modify" ]; then
     if [[ -n "$USPEED" ]]; then
-        tc class change dev "$IFACE" parent 1: classid 1:1 htb \
-           rate "${USPEED}kbit" \
-           prio 5 ${COMMONOPTIONS[@]};
-
-        RATE=$((20*${USPEED}/100))
-        if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-        tc class change dev "$IFACE" parent 1:1 classid 1:10 htb \
-           rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
-           prio 1 ${COMMONOPTIONS[@]};
-
-        RATE=$((40*${USPEED}/100))
-        if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-        tc class change dev "$IFACE" parent 1:1 classid 1:20 htb \
-           rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
-           prio 2 ${COMMONOPTIONS[@]};
-
-        RATE=$((20*${USPEED}/100))
-        if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-        tc class change dev "$IFACE" parent 1:1 classid 1:30 htb \
-           rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
-           prio 3 ${COMMONOPTIONS[@]};
+        set_class_uplink change
     fi
 
     if [[ -n "$DSPEED" ]]; then
-        tc class change dev "$IFB" parent 2: classid 2:1 htb rate "${DSPEED}kbit"
+        set_class_downlink change
     fi
 
     exit
@@ -183,34 +202,8 @@ tc qdisc add dev "$IFACE" root handle 1: htb default 20;
 # DSL modem which destroy latency:
 # main class
 if [[ -n "$USPEED" ]]; then
-  tc class add dev "$IFACE" parent 1: classid 1:1 htb \
-    rate "${USPEED}kbit" \
-    prio 5 ${COMMONOPTIONS[@]};
 
-  # high prio class 1:10:
-
-  RATE=$((20*${USPEED}/100))
-  if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-  tc class add dev "$IFACE" parent 1:1 classid 1:10 htb \
-    rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
-    prio 1 ${COMMONOPTIONS[@]};
-
-  # bulk and default class 1:20 - gets slightly less traffic,
-  #  and a lower priority:
-
-  RATE=$((40*${USPEED}/100))
-  if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-  tc class add dev "$IFACE" parent 1:1 classid 1:20 htb \
-    rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
-    prio 2 ${COMMONOPTIONS[@]};
-
-  # 'traffic we hate'
-
-  RATE=$((20*${USPEED}/100))
-  if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-  tc class add dev "$IFACE" parent 1:1 classid 1:30 htb \
-    rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
-    prio 3 ${COMMONOPTIONS[@]};
+  set_class_uplink
 
   # all get Stochastic Fairness:
   tc qdisc add dev "$IFACE" parent 1:10 handle 10: sfq perturb 10 quantum "$QUANTUM";
@@ -292,7 +285,7 @@ if [[ -n "$DSPEED" ]]; then
 
   # Add class and rules for virtual
   tc qdisc add dev "$IFB" root handle 2: htb;
-  tc class add dev "$IFB" parent 2: classid 2:1 htb rate "${DSPEED}kbit";
+  set_class_downlink
 
   # Add filter to rule for IP address
   tc filter add dev "$IFB" protocol ip parent 2: prio 1 u32 \
