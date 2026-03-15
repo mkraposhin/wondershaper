@@ -61,12 +61,14 @@ OPTIONS:
 
 MODES:
    wondershaper -a <adapter> -d <rate> -u <rate>
+   wondershaper -m -a <adapter> -d <rate> -u <rate>
    wondershaper -c -a <adapter>
    wondershaper -s -a <adapter>
 
 EXAMPLES:
    wondershaper -a eth0 -d 1024 -u 512
    wondershaper -a eth0 -u 512
+   wondershaper -m -a eth0 -u 256
    wondershaper -c -a eth0
    wondershaper -p -f foo.conf
 
@@ -79,6 +81,7 @@ IFACE="";
 IFB="ifb0";
 LOAD_PRESETS=false
 MODE=""
+TCMODE="add"
 
 while getopts hvf:d:u:a:pcsm o; do
   case "$o" in
@@ -93,7 +96,7 @@ while getopts hvf:d:u:a:pcsm o; do
     p) LOAD_PRESETS=true;;
     c) MODE="clear";;
     s) MODE="status";;
-    m) MODE="modify";;
+    m) TCMODE="change";;
     [?])	usage;
 		exit 1;;
 	esac;
@@ -140,58 +143,6 @@ if [[ -z "$DSPEED" ]] && [[ -z "$USPEED" ]]; then
     exit 1;
 fi;
 
-function set_class_uplink() {
-    local mode=$1
-    if [[ -z "$mode" ]]; then
-        mode=add
-    fi
-
-    tc class $mode dev "$IFACE" parent 1: classid 1:1 htb \
-        rate "${USPEED}kbit" \
-        prio 5 ${COMMONOPTIONS[@]};
-
-    RATE=$((20*${USPEED}/100))
-    if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-    tc class $mode dev "$IFACE" parent 1:1 classid 1:10 htb \
-        rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
-        prio 1 ${COMMONOPTIONS[@]};
-
-    RATE=$((40*${USPEED}/100))
-    if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-    tc class $mode dev "$IFACE" parent 1:1 classid 1:20 htb \
-        rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
-        prio 2 ${COMMONOPTIONS[@]};
-
-    RATE=$((20*${USPEED}/100))
-    if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
-    tc class $mode dev "$IFACE" parent 1:1 classid 1:30 htb \
-        rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
-        prio 3 ${COMMONOPTIONS[@]};
-}
-
-function set_class_downlink() {
-    local mode=$1
-    if [[ -z "$mode" ]]; then
-        mode=add
-    fi
-
-    tc class $mode dev "$IFB" parent 2: classid 2:1 htb \
-        rate "${DSPEED}kbit"
-}
-
-# Modify the current configuration
-if [ "$MODE" = "modify" ]; then
-    if [[ -n "$USPEED" ]]; then
-        set_class_uplink change
-    fi
-
-    if [[ -n "$DSPEED" ]]; then
-        set_class_downlink change
-    fi
-
-    exit
-fi
-
 ###### uplink
 
 # install root HTB
@@ -202,8 +153,36 @@ tc qdisc add dev "$IFACE" root handle 1: htb default 20;
 # DSL modem which destroy latency:
 # main class
 if [[ -n "$USPEED" ]]; then
+  tc class $TCMODE dev "$IFACE" parent 1: classid 1:1 htb \
+    rate "${USPEED}kbit" \
+    prio 5 ${COMMONOPTIONS[@]};
 
-  set_class_uplink
+  # high prio class 1:10:
+
+  RATE=$((20*${USPEED}/100))
+  if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+  tc class $TCMODE dev "$IFACE" parent 1:1 classid 1:10 htb \
+    rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
+    prio 1 ${COMMONOPTIONS[@]};
+
+  # bulk and default class 1:20 - gets slightly less traffic,
+  #  and a lower priority:
+
+  RATE=$((40*${USPEED}/100))
+  if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+  tc class $TCMODE dev "$IFACE" parent 1:1 classid 1:20 htb \
+    rate "${RATE}kbit" ceil $((95*${USPEED}/100))kbit \
+    prio 2 ${COMMONOPTIONS[@]};
+
+  # 'traffic we hate'
+
+  RATE=$((20*${USPEED}/100))
+  if [ "$RATE" -eq 0 ]; then RATE=1 ; fi
+  tc class $TCMODE dev "$IFACE" parent 1:1 classid 1:30 htb \
+    rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
+    prio 3 ${COMMONOPTIONS[@]};
+
+ elif [[ -n "$DSPEED" ]] && [ "$TCMODE" = "add" ]; then
 
   # all get Stochastic Fairness:
   tc qdisc add dev "$IFACE" parent 1:10 handle 10: sfq perturb 10 quantum "$QUANTUM";
@@ -273,7 +252,7 @@ fi;
 # ISPs tend to have *huge* queues to make sure big downloads are fast
 #
 # attach ingress policer:
-if [[ -n "$DSPEED" ]]; then
+if [[ -n "$DSPEED" ]] && [ "$TCMODE" = "add" ]; then
   # Add the IFB interface
   modprobe ifb numifbs=1;
   ip link set dev "$IFB" up;
@@ -285,13 +264,16 @@ if [[ -n "$DSPEED" ]]; then
 
   # Add class and rules for virtual
   tc qdisc add dev "$IFB" root handle 2: htb;
-  set_class_downlink
 
   # Add filter to rule for IP address
   tc filter add dev "$IFB" protocol ip parent 2: prio 1 u32 \
     match ip src 0.0.0.0/0 flowid 2:1;
 
+elif [[ -n "$DSPEED" ]]; then
+  tc class $TCMODE dev "$IFB" parent 2: classid 2:1 htb rate "${DSPEED}kbit";
+
 fi;
+
 
 ### EOF
 ### vim:tw=80:et:sts=2:st=2:sw=2:com+=b\:###:fo+=cqtrw:tags=tags:
