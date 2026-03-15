@@ -182,7 +182,9 @@ if [[ -n "$USPEED" ]]; then
     rate "${RATE}kbit" ceil $((90*${USPEED}/100))kbit \
     prio 3 ${COMMONOPTIONS[@]};
 
- elif [[ -n "$DSPEED" ]] && [ "$TCMODE" = "add" ]; then
+fi;
+
+if [[ -n "$DSPEED" ]] && [ "$TCMODE" = "add" ]; then
 
   # all get Stochastic Fairness:
   tc qdisc add dev "$IFACE" parent 1:10 handle 10: sfq perturb 10 quantum "$QUANTUM";
@@ -269,7 +271,9 @@ if [[ -n "$DSPEED" ]] && [ "$TCMODE" = "add" ]; then
   tc filter add dev "$IFB" protocol ip parent 2: prio 1 u32 \
     match ip src 0.0.0.0/0 flowid 2:1;
 
-elif [[ -n "$DSPEED" ]]; then
+fi;
+
+if [[ -n "$DSPEED" ]]; then
   tc class $TCMODE dev "$IFB" parent 2: classid 2:1 htb rate "${DSPEED}kbit";
 
 fi;
