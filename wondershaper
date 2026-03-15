@@ -148,7 +148,7 @@ fi;
 # install root HTB
 
 if [ "$TCMODE" = "add" ]; then
-  tc qdisc add $TCMODE "$IFACE" root handle 1: htb default 20;
+  tc qdisc add dev "$IFACE" root handle 1: htb default 20;
 fi;
 
 # shape everything at $USPEED speed - this prevents huge queues in your
