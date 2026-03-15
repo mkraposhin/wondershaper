@@ -146,9 +146,8 @@ fi;
 ###### uplink
 
 # install root HTB
-if [ "$TCMODE" = "add" ]k then
-  tc qdisc $TCMODE dev "$IFACE" root handle 1: htb default 20;
-fi;
+
+tc qdisc add $TCMODE "$IFACE" root handle 1: htb default 20;
 
 # shape everything at $USPEED speed - this prevents huge queues in your
 # DSL modem which destroy latency:
