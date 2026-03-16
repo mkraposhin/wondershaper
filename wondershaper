@@ -186,7 +186,7 @@ if [[ -n "$USPEED" ]]; then
 
 fi;
 
-if [[ -n "$DSPEED" ]] && [ "$TCMODE" = "add" ]; then
+if [[ -n "$USPEED" ]] && [ "$TCMODE" = "add" ]; then
 
   # all get Stochastic Fairness:
   tc qdisc add dev "$IFACE" parent 1:10 handle 10: sfq perturb 10 quantum "$QUANTUM";
